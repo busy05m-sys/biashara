@@ -216,8 +216,215 @@ tr:hover td{background:#FBF9F2;}
 .two-col{display:grid;grid-template-columns:1.3fr .9fr;gap:16px;}
 @media(max-width:1000px){.two-col{grid-template-columns:1fr;}}
 </style>
+
+<!-- ═══ FIREBASE (Auth + Firestore) ═══ -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyCicG0RsPh2ygH2pUpaV15as9WA8GMDh3M",
+    authDomain: "kiseja-cl-biashara.firebaseapp.com",
+    projectId: "kiseja-cl-biashara",
+    storageBucket: "kiseja-cl-biashara.firebasestorage.app",
+    messagingSenderId: "325593564374",
+    appId: "1:325593564374:web:b677f42e848b6354b1f577"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db   = firebase.firestore();
+
+  let currentUID = null, currentBusinessId = null, currentRole = null, currentUserEmail = null;
+
+  function swAuthErr(code){
+    const map = {
+      'auth/email-already-in-use':'Barua pepe hii tayari ina akaunti. Jaribu "Ingia" badala ya kujisajili.',
+      'auth/invalid-email':'Barua pepe si sahihi.',
+      'auth/weak-password':'Nenosiri ni fupi mno (angalau herufi 6).',
+      'auth/user-not-found':'Akaunti haipo kwa barua pepe hii.',
+      'auth/wrong-password':'Nenosiri si sahihi.',
+      'auth/invalid-credential':'Barua pepe au nenosiri si sahihi.',
+      'auth/missing-password':'Andika nenosiri.',
+      'auth/too-many-requests':'Majaribio mengi yameshindwa. Subiri kidogo kisha jaribu tena.',
+      'auth/network-request-failed':'Hitilafu ya mtandao. Angalia intaneti yako.'
+    };
+    return map[code] || ('Hitilafu imetokea: '+code);
+  }
+  function authMsg(msg,ok){
+    const el=document.getElementById('auth-msg');
+    if(!el)return;
+    el.textContent=msg||'';
+    el.style.display=msg?'block':'none';
+    el.style.color = ok ? '#2E6B4F' : '#B3432B';
+  }
+  function setAuthBusy(busy){
+    document.querySelectorAll('.auth-btn').forEach(b=>b.disabled=busy);
+  }
+  function doRegister(){
+    const email=document.getElementById('auth-email').value.trim();
+    const pass=document.getElementById('auth-password').value;
+    authMsg('');
+    if(!email||!pass){authMsg('Jaza barua pepe na nenosiri.');return;}
+    if(pass.length<6){authMsg('Nenosiri liwe na herufi angalau 6.');return;}
+    setAuthBusy(true);
+    auth.createUserWithEmailAndPassword(email,pass)
+      .catch(e=>authMsg(swAuthErr(e.code)))
+      .finally(()=>setAuthBusy(false));
+  }
+  function doLogin(){
+    const email=document.getElementById('auth-email').value.trim();
+    const pass=document.getElementById('auth-password').value;
+    authMsg('');
+    if(!email||!pass){authMsg('Jaza barua pepe na nenosiri.');return;}
+    setAuthBusy(true);
+    auth.signInWithEmailAndPassword(email,pass)
+      .catch(e=>authMsg(swAuthErr(e.code)))
+      .finally(()=>setAuthBusy(false));
+  }
+  function doResetPassword(){
+    const email=document.getElementById('auth-email').value.trim();
+    if(!email){authMsg('Andika barua pepe yako juu kwanza, kisha bofya hapa tena.');return;}
+    setAuthBusy(true);
+    auth.sendPasswordResetEmail(email)
+      .then(()=>authMsg('✅ Barua pepe ya kubadili nenosiri imetumwa. Angalia inbox yako (na Spam).',true))
+      .catch(e=>authMsg(swAuthErr(e.code)))
+      .finally(()=>setAuthBusy(false));
+  }
+  function doLogout(){
+    if(confirm('Una uhakika unataka kutoka (logout)?')) auth.signOut();
+  }
+
+  // ── Multi-tenant load/save (Firestore) ────────────────────
+  async function resolveUserAndBusiness(uid, email){
+    const userSnap = await db.collection('users').doc(uid).get();
+    if(userSnap.exists){
+      const u = userSnap.data();
+      currentBusinessId = u.businessId;
+      currentRole = u.role;
+      currentUserEmail = u.email || email;
+    } else {
+      // First-time: this account becomes a NEW business owner
+      currentBusinessId = uid;
+      currentRole = 'Mmiliki';
+      currentUserEmail = email;
+      await db.collection('users').doc(uid).set({
+        businessId: uid, role: 'Mmiliki', email: email, createdAt: new Date().toISOString()
+      });
+    }
+  }
+  async function loadDBFromCloud(){
+    const bizSnap = await db.collection('businesses').doc(currentBusinessId).get();
+    if(bizSnap.exists){
+      const parsed = bizSnap.data();
+      const defaultSettings = DB.settings, defaultCounters = DB.settings.docCounters;
+      DB = Object.assign(DB, parsed);
+      DB.settings = Object.assign({}, defaultSettings, parsed.settings||{});
+      DB.settings.docCounters = Object.assign({}, defaultCounters, (parsed.settings&&parsed.settings.docCounters)||{});
+      DB.customers = DB.customers || [];
+      DB.suppliers = DB.suppliers || [];
+      DB.staffAccounts = DB.staffAccounts || [];
+    } else {
+      DB.staffAccounts = DB.staffAccounts || [];
+      await db.collection('businesses').doc(currentBusinessId).set(DB);
+    }
+  }
+  async function saveDBToCloud(){
+    try{
+      await db.collection('businesses').doc(currentBusinessId).set(DB);
+    }catch(e){
+      console.error('Cloud save error:', e);
+      toast('⚠️ Imeshindwa kuhifadhi mtandaoni. Angalia intaneti yako.');
+    }
+  }
+
+  // ── Owner creates a staff login account (without losing own session) ──
+  async function createStaffAccount(email, tempPassword, name, role){
+    const secName = 'secondary_'+Date.now();
+    const secApp = firebase.initializeApp(firebaseConfig, secName);
+    const secAuth = secApp.auth();
+    const secDb = secApp.firestore();
+    try{
+      const cred = await secAuth.createUserWithEmailAndPassword(email, tempPassword);
+      const newUid = cred.user.uid;
+      await secDb.collection('users').doc(newUid).set({
+        businessId: currentBusinessId, role: role, email: email, name: name,
+        createdAt: new Date().toISOString()
+      });
+      await secAuth.signOut();
+      await secApp.delete();
+      // back on primary session: record this staff account on the business doc
+      DB.staffAccounts = DB.staffAccounts || [];
+      DB.staffAccounts.push({uid:newUid, email, name, role, createdAt:new Date().toISOString()});
+      await saveDBToCloud();
+      return {ok:true};
+    }catch(e){
+      try{ await secApp.delete(); }catch(e2){}
+      return {ok:false, error: swAuthErr(e.code)};
+    }
+  }
+
+  auth.onAuthStateChanged(async function(user){
+    const authScreen=document.getElementById('auth-screen');
+    const appContent=document.getElementById('app-content');
+    if(user){
+      currentUID=user.uid;
+      await resolveUserAndBusiness(user.uid, user.email);
+      authScreen.style.display='none';
+      appContent.style.display='block';
+      await boot();
+    } else {
+      currentUID=null; currentBusinessId=null; currentRole=null; currentUserEmail=null;
+      authScreen.style.display='flex';
+      appContent.style.display='none';
+    }
+  });
+</script>
 </head>
 <body>
+
+<!-- ═══ AUTH SCREEN (login / register) ═══ -->
+<div id="auth-screen" style="display:flex;min-height:100vh;align-items:center;justify-content:center;
+  background:linear-gradient(160deg,#173C30,#0F2A22 60%,#173C30);padding:1.2rem;font-family:'Inter',sans-serif">
+  <div style="background:#FFFFFF;border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,.35);
+    padding:2rem 1.6rem;max-width:380px;width:100%">
+    <div style="text-align:center;margin-bottom:1.4rem">
+      <div style="font-size:2.2rem">🏪</div>
+      <h1 style="font-size:1.1rem;font-weight:800;color:#173C30;margin-top:.3rem;font-family:'Fraunces',serif">KCL — MFUMO WA BIASHARA</h1>
+      <div style="font-size:.78rem;color:#6B7269;margin-top:.2rem">Ingia kwenye akaunti yako, au anzisha biashara mpya</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:.7rem">
+      <div>
+        <label style="font-size:.72rem;font-weight:700;color:#6B7269;text-transform:uppercase;letter-spacing:.05em">Barua Pepe</label>
+        <input id="auth-email" type="email" placeholder="wewe@mfano.com" autocomplete="email"
+          style="width:100%;padding:.65rem .8rem;border:1.5px solid #E4DFD0;border-radius:8px;font:inherit;font-size:.9rem;margin-top:.25rem">
+      </div>
+      <div>
+        <label style="font-size:.72rem;font-weight:700;color:#6B7269;text-transform:uppercase;letter-spacing:.05em">Nenosiri</label>
+        <input id="auth-password" type="password" placeholder="Angalau herufi 6" autocomplete="current-password"
+          style="width:100%;padding:.65rem .8rem;border:1.5px solid #E4DFD0;border-radius:8px;font:inherit;font-size:.9rem;margin-top:.25rem">
+      </div>
+      <div id="auth-msg" style="display:none;font-size:.8rem;font-weight:600;padding:.5rem .7rem;background:#FBEBE5;border-radius:6px"></div>
+      <button class="auth-btn" onclick="doLogin()"
+        style="background:#173C30;color:#fff;border:none;padding:.75rem;border-radius:8px;font:inherit;font-weight:700;font-size:.92rem;cursor:pointer;margin-top:.3rem">
+        Ingia
+      </button>
+      <button class="auth-btn" onclick="doRegister()"
+        style="background:#fff;color:#173C30;border:1.5px solid #173C30;padding:.75rem;border-radius:8px;font:inherit;font-weight:700;font-size:.92rem;cursor:pointer">
+        Jisajili (Anzisha Biashara Mpya)
+      </button>
+      <a class="auth-btn" onclick="doResetPassword()"
+        style="text-align:center;font-size:.8rem;color:#173C30;cursor:pointer;margin-top:.2rem;text-decoration:underline">
+        Umesahau nenosiri?
+      </a>
+    </div>
+    <div style="margin-top:1rem;font-size:.72rem;color:#6B7269;text-align:center;line-height:1.4">
+      Kama wewe ni mfanyakazi (mgavi, mhasibu, n.k.), tumia barua pepe na nenosiri alilokupa mwajiri wako — bofya "Ingia".
+    </div>
+  </div>
+</div>
+
+<!-- ═══ APP CONTENT (hidden until logged in) ═══ -->
+<div id="app-content" style="display:none">
 
 <div id="app"></div>
 <div id="printArea"></div>
@@ -266,26 +473,18 @@ let DB = {
   employees:[],
   documents:[],
   customers:[],
-  suppliers:[]
+  suppliers:[],
+  staffAccounts:[]
 };
 
 let activeBranch = "all";
 let activeTab = "dashboard";
 
-/* ---------------- persistence ---------------- */
+/* ---------------- persistence (Firestore, multi-tenant) ---------------- */
 async function loadDB(){
   try{
-    const r = await window.storage.get(STORE_KEY, true);
-    if(r && r.value){
-      const parsed = JSON.parse(r.value);
-      const defaultSettings = DB.settings, defaultCounters = DB.settings.docCounters;
-      DB = Object.assign(DB, parsed);
-      DB.settings = Object.assign({}, defaultSettings, parsed.settings||{});
-      DB.settings.docCounters = Object.assign({}, defaultCounters, (parsed.settings&&parsed.settings.docCounters)||{});
-      DB.customers = DB.customers || [];
-      DB.suppliers = DB.suppliers || [];
-    }
-  }catch(e){ /* first run, no data yet */ }
+    await loadDBFromCloud();
+  }catch(e){ console.error('Load error:', e); toast('⚠️ Imeshindwa kupakia data. Angalia intaneti yako.'); }
 }
 function fileToBase64(file){
   return new Promise((resolve,reject)=>{
@@ -330,7 +529,7 @@ async function importMergeFile(file){
 }
 async function saveDB(){
   try{
-    await window.storage.set(STORE_KEY, JSON.stringify(DB), true);
+    await saveDBToCloud();
   }catch(e){ console.error("Imeshindwa kuhifadhi data", e); toast("⚠️ Imeshindwa kuhifadhi data. Jaribu tena."); }
 }
 function uid(p){ return p+"_"+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
@@ -489,6 +688,15 @@ function renderTopbar(){
   const [t,s] = titles[activeTab]||["",""];
   return `<div class="topbar">
     <div><h1>${t}</h1><div class="sub">${s}</div></div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="font-size:11.5px;color:var(--muted);text-align:right;line-height:1.3;">
+        👤 ${esc(currentUserEmail||'')}<br/><b style="color:var(--forest);">${esc(currentRole||'')}</b>
+      </div>
+      <button onclick="doLogout()" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);
+        padding:6px 12px;border-radius:8px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">
+        🚪 Toka
+      </button>
+    </div>
     <div class="branch-select">
       <span style="font-size:12px;color:var(--muted);font-weight:600;">🏬 Biashara/Tawi Linalofanya Kazi:</span>
       <select onchange="setBranch(this.value)">
@@ -1854,7 +2062,64 @@ function tabSettings(){
       </div>
       <p class="hint" style="margin-top:8px;">"Pakia na Unganisha" huongeza tu taarifa mpya kutoka kwenye faili — hazitafuta chochote kilichopo kwenye kompyuta hii.</p>
     </div>
+  </div>
+  ${currentRole==='Mmiliki' ? tabStaffAccounts() : ''}`;
+}
+function tabStaffAccounts(){
+  const staff = DB.staffAccounts||[];
+  return `
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title"><h2>👥 Wafanyakazi Wenye Akaunti ya Kuingia Mfumoni</h2></div>
+    <p class="hint">Unda akaunti ya kuingia kwa mfanyakazi (mgavi, mhasibu, sales officer, meneja, n.k). Watatumia barua pepe na nenosiri hili kuingia — wataona data ile ile ya biashara yako.</p>
+    <div class="row" style="margin-top:10px;">
+      <div class="field"><label>Barua Pepe ya Mfanyakazi</label><input id="sa_email" type="email" placeholder="mfano@gmail.com"></div>
+      <div class="field"><label>Jina Lake</label><input id="sa_name" type="text" placeholder="Jina kamili"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Nenosiri la Muda (mpe mfanyakazi)</label><input id="sa_pass" type="text" placeholder="Angalau herufi 6"></div>
+      <div class="field"><label>Cheo</label>
+        <select id="sa_role">
+          <option>Mgavi</option><option>Mhasibu</option><option>Sales Officer</option>
+          <option>Meneja</option><option>Mfanyakazi Mwingine</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn gold" onclick="addStaffAccountUI()">➕ Tengeneza Akaunti ya Mfanyakazi</button>
+    <div id="sa-msg" style="display:none;margin-top:8px;font-size:13px;font-weight:600;padding:8px 10px;border-radius:6px;"></div>
+
+    <div class="section-title" style="margin-top:18px;"><h2 style="font-size:13px;">Orodha ya Wafanyakazi Wenye Akaunti</h2><div class="line"></div></div>
+    ${staff.length===0?'<p class="hint">Hakuna mfanyakazi mwenye akaunti bado.</p>':`
+      <table class="tbl"><thead><tr><th>Jina</th><th>Barua Pepe</th><th>Cheo</th><th>Tarehe</th></tr></thead>
+      <tbody>${staff.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.email)}</td><td>${esc(x.role)}</td><td>${esc((x.createdAt||'').slice(0,10))}</td></tr>`).join('')}</tbody></table>
+      <p class="hint" style="margin-top:8px;">Kuondoa mfanyakazi kabisa (kuzuia asiingie tena), wasiliana na msaidizi wako wa kiufundi kufanya hivyo kwenye Firebase Console.</p>
+    `}
   </div>`;
+}
+async function addStaffAccountUI(){
+  const email=document.getElementById('sa_email').value.trim();
+  const name=document.getElementById('sa_name').value.trim();
+  const pass=document.getElementById('sa_pass').value;
+  const role=document.getElementById('sa_role').value;
+  const msg=document.getElementById('sa-msg');
+  if(!email||!name||!pass){
+    msg.style.display='block'; msg.style.background='#FBEBE5'; msg.style.color='#B3432B';
+    msg.textContent='Jaza barua pepe, jina na nenosiri.'; return;
+  }
+  if(pass.length<6){
+    msg.style.display='block'; msg.style.background='#FBEBE5'; msg.style.color='#B3432B';
+    msg.textContent='Nenosiri liwe na herufi angalau 6.'; return;
+  }
+  msg.style.display='block'; msg.style.background='#FBF2DE'; msg.style.color='#B9821F';
+  msg.textContent='⏳ Inatengeneza akaunti...';
+  const res = await createStaffAccount(email, pass, name, role);
+  if(res.ok){
+    msg.style.background='#E7F1EA'; msg.style.color='#2E6B4F';
+    msg.textContent=`✅ Akaunti ya ${name} imetengenezwa. Mpe barua pepe: ${email} na nenosiri: ${pass}`;
+    render();
+  } else {
+    msg.style.background='#FBEBE5'; msg.style.color='#B3432B';
+    msg.textContent='❌ '+res.error;
+  }
 }
 async function uploadShopLogo(input){
   const file = input.files[0]; if(!file) return;
@@ -1885,8 +2150,8 @@ function exportData(){
   URL.revokeObjectURL(url);
 }
 
-/* ================= BOOT ================= */
-(async function boot(){
+/* ================= BOOT (called after login, see Firebase auth handler) ================= */
+async function boot(){
   document.getElementById('app').innerHTML = `<div style="padding:60px;text-align:center;color:#173C30;font-family:'Fraunces',serif;">Inapakia mfumo wa KCL...</div>`;
   await loadDB();
   if(DB.branches.length===0){
@@ -1895,7 +2160,10 @@ function exportData(){
   }
   if(activeBranch==='all' && DB.branches.length>0) activeBranch = DB.branches[0].id;
   render();
-})();
+}
 </script>
+
+</div><!-- /#app-content -->
+
 </body>
 </html>
