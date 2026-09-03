@@ -235,6 +235,10 @@ tr:hover td{background:#FBF9F2;}
   const db   = firebase.firestore();
 
   let currentUID = null, currentBusinessId = null, currentRole = null, currentUserEmail = null;
+  let currentPlatformStatus = 'active'; // 'pending' | 'active' | 'suspended' - hali ya biashara husika kwenye mfumo mzima
+  const PLATFORM_ADMIN_EMAIL = 'info@kiseja.com'; // Msimamizi Mkuu wa mfumo mzima (anaidhinisha/kusimamisha maduka)
+  const PAYMENT_YASS_NUMBER = '17517483';
+  const PAYMENT_INQUIRY_EMAIL = 'info@kiseja.com';
 
   function swAuthErr(code){
     const map = {
@@ -322,6 +326,24 @@ tr:hover td{background:#FBF9F2;}
       await db.collection('users').doc(uid).set({
         businessId: uid, role: 'Mmiliki', email: email, createdAt: new Date().toISOString()
       });
+      // Sajili biashara hii kwenye orodha kuu ya mfumo - inasubiri idhini ya Msimamizi Mkuu
+      // (isipokuwa endapo huyu mwenyewe ndiye Msimamizi Mkuu - basi anaidhinishwa moja kwa moja)
+      try{
+        await db.collection('platform_businesses').doc(uid).set({
+          businessId: uid, ownerEmail: email,
+          status: (email===PLATFORM_ADMIN_EMAIL) ? 'active' : 'pending',
+          createdAt: new Date().toISOString()
+        });
+      }catch(e){ console.error('Imeshindwa kusajili biashara kwenye mfumo mkuu', e); }
+    }
+    // Soma hali ya sasa ya biashara hii (idhinishwa/inasubiri/imesimamishwa)
+    if(email===PLATFORM_ADMIN_EMAIL){
+      currentPlatformStatus = 'active';
+    } else {
+      try{
+        const pbSnap = await db.collection('platform_businesses').doc(currentBusinessId).get();
+        currentPlatformStatus = pbSnap.exists ? (pbSnap.data().status||'pending') : 'pending';
+      }catch(e){ console.error('Imeshindwa kusoma hali ya biashara', e); currentPlatformStatus='active'; /* usizuie kama mtandao una tatizo la muda */ }
     }
   }
   async function loadDBFromCloud(){
@@ -382,17 +404,49 @@ tr:hover td{background:#FBF9F2;}
       currentUID=user.uid;
       await resolveUserAndBusiness(user.uid, user.email);
       authScreen.style.display='none';
+      if(currentPlatformStatus!=='active'){
+        appContent.style.display='none';
+        renderPlatformBlockedScreen();
+        return;
+      }
+      const pbScreen=document.getElementById('platform-blocked-screen'); if(pbScreen) pbScreen.style.display='none';
       appContent.style.display='block';
       await boot();
     } else {
       currentUID=null; currentBusinessId=null; currentRole=null; currentUserEmail=null;
+      const pbScreen=document.getElementById('platform-blocked-screen'); if(pbScreen) pbScreen.style.display='none';
       authScreen.style.display='flex';
       appContent.style.display='none';
     }
   });
+  function renderPlatformBlockedScreen(){
+    const box = document.getElementById('platform-blocked-screen');
+    const pending = currentPlatformStatus==='pending';
+    box.style.display='flex';
+    box.innerHTML = `
+      <div style="background:#FFFFFF;border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,.35);padding:2rem 1.6rem;max-width:420px;width:100%;text-align:center;">
+        <div style="font-size:2.4rem;margin-bottom:8px;">${pending?'⏳':'🚫'}</div>
+        <h2 style="font-family:'Fraunces',serif;color:#173C30;font-size:1.15rem;margin-bottom:8px;">
+          ${pending?'Akaunti Yako Inasubiri Idhini':'Akaunti Yako Imesimamishwa'}
+        </h2>
+        <p style="font-size:.88rem;color:#6B7269;line-height:1.6;margin-bottom:16px;">
+          ${pending
+            ? 'Msimamizi Mkuu wa mfumo bado hajaidhinisha akaunti yako. Tafadhali subiri, au wasiliana nasi kuharakisha.'
+            : 'Akaunti hii imesimamishwa (huenda kwa sababu ya malipo yasiyokamilika au ukiukwaji wa masharti). Wasiliana nasi kuendelea kutumia mfumo.'}
+        </p>
+        <div style="background:#F6F2E7;border-radius:10px;padding:14px;text-align:left;font-size:.85rem;line-height:1.7;margin-bottom:16px;">
+          <div><b>💳 Lipa kupitia Yass:</b> ${PAYMENT_YASS_NUMBER}</div>
+          <div><b>✉️ Maulizo:</b> ${PAYMENT_INQUIRY_EMAIL}</div>
+        </div>
+        <button onclick="auth.signOut()" style="background:#173C30;color:#fff;border:none;padding:.7rem 1.4rem;border-radius:8px;font:inherit;font-weight:700;font-size:.88rem;cursor:pointer;">Toka</button>
+      </div>`;
+  }
 </script>
 </head>
 <body>
+
+<div id="platform-blocked-screen" style="display:none;min-height:100vh;align-items:center;justify-content:center;
+  background:linear-gradient(160deg,#173C30,#0F2A22 60%,#173C30);padding:1.2rem;font-family:'Inter',sans-serif;position:fixed;inset:0;z-index:3000;"></div>
 
 <!-- ═══ AUTH SCREEN (login / register) ═══ -->
 <div id="auth-screen" style="display:flex;min-height:100vh;align-items:center;justify-content:center;
@@ -654,6 +708,9 @@ function renderSidebar(){
     {group:"Watu", tabs:[["hr","👥","Wafanyakazi (HRM)"],["payroll","💵","Payroll"]]},
     {group:"Uendeshaji", tabs:[["expenses","🏢","Gharama za Uendeshaji"],["branches","📍","Matawi"],["settings","⚙️","Mipangilio"]]},
   ];
+  if(currentUserEmail===PLATFORM_ADMIN_EMAIL){
+    items.push({group:"Usimamizi wa Mfumo", tabs:[["platformadmin","🛡️","Maduka Yote (Msimamizi Mkuu)"]]});
+  }
   return `<div class="sidebar">
     <div class="brand">
       ${shopLogoHTML(38)}
@@ -763,6 +820,7 @@ function renderTab(){
       case 'expenses': return tabExpenses();
       case 'branches': return tabBranches();
       case 'settings': return tabSettings();
+      case 'platformadmin': return tabPlatformAdmin();
       default: return '';
     }
   }catch(e){
@@ -2094,6 +2152,45 @@ function tabSettings(){
     </div>
   </div>
   ${currentRole==='Mmiliki' ? tabStaffAccounts() : ''}`;
+}
+function tabPlatformAdmin(){
+  loadAllBusinessesForAdmin();
+  return `<div class="card">
+    <div class="card-title"><h2>🛡️ Usimamizi wa Mfumo Mzima (Msimamizi Mkuu)</h2></div>
+    <p class="hint">Idhinisha maduka mapya yanayojisajili, au simamisha yale yaliyovunja masharti / hayajalipia. Malipo hupokelewa kupitia Yass ${PAYMENT_YASS_NUMBER}, maulizo ${PAYMENT_INQUIRY_EMAIL}.</p>
+    <div id="platform-admin-list"><p class="hint">Inapakia...</p></div>
+  </div>`;
+}
+async function loadAllBusinessesForAdmin(){
+  try{
+    const snap = await db.collection('platform_businesses').orderBy('createdAt','desc').get();
+    const rows = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    const el = document.getElementById('platform-admin-list');
+    if(!el) return;
+    el.innerHTML = `<table class="tbl"><thead><tr><th>Barua Pepe ya Mmiliki</th><th>Tarehe ya Kujisajili</th><th>Hali</th><th></th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td>${esc(r.ownerEmail||'—')}</td>
+        <td>${esc((r.createdAt||'').slice(0,10))}</td>
+        <td>${r.status==='active'?'<span class="badge green">Amethibitishwa</span>':r.status==='suspended'?'<span class="badge red">Amesimamishwa</span>':'<span class="badge">Anasubiri Idhini</span>'}</td>
+        <td>
+          ${r.status!=='active'?`<button class="btn ghost sm" onclick="setBusinessStatus('${r.id}','active')">✅ Idhinisha</button>`:''}
+          ${r.status==='active'?`<button class="btn ghost sm" onclick="setBusinessStatus('${r.id}','suspended')">🚫 Simamisha</button>`:''}
+          ${r.status==='suspended'?`<button class="btn ghost sm" onclick="setBusinessStatus('${r.id}','active')">Ruhusu Tena</button>`:''}
+        </td>
+      </tr>`).join('')||'<tr><td colspan="4" class="empty">Hakuna biashara bado</td></tr>'}</tbody></table>`;
+  }catch(e){
+    console.error(e);
+    const el=document.getElementById('platform-admin-list');
+    if(el) el.innerHTML='<p class="hint">Imeshindwa kupakia orodha ya maduka. Angalia Firestore Rules kwa "platform_businesses".</p>';
+  }
+}
+async function setBusinessStatus(bizId, status){
+  if(!confirm(status==='active'?'Idhinisha biashara hii? Wataweza kutumia mfumo mara moja.':'Simamisha biashara hii? Hawataweza kutumia mfumo mpaka uwaruhusu tena.')) return;
+  try{
+    await db.collection('platform_businesses').doc(bizId).update({status, updatedAt:new Date().toISOString()});
+    toast(status==='active'?'✅ Imeidhinishwa':'🚫 Imesimamishwa');
+    loadAllBusinessesForAdmin();
+  }catch(e){ toast('❌ Imeshindwa: '+e.message); }
 }
 function tabStaffAccounts(){
   const staff = DB.staffAccounts||[];
