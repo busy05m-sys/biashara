@@ -294,6 +294,18 @@ tr:hover td{background:#FBF9F2;}
     if(confirm('Una uhakika unataka kutoka (logout)?')) auth.signOut();
   }
 
+  // ── Ruhusa ya Kuhariri/Kufuta: Mmiliki daima ana ruhusa. Mfanyakazi anahitaji
+  //    kupewa ruhusa hii wazi na Mmiliki (kupitia "Wafanyakazi" -> "Ruhusu Kuhariri/Kufuta").
+  function canEditDelete(){
+    if(currentRole==='Mmiliki') return true;
+    const acc = (DB.staffAccounts||[]).find(x=>x.uid===currentUID);
+    return !!(acc && acc.canEditDelete);
+  }
+  function requireEditDelete(){
+    if(!canEditDelete()){ toast('⛔ Huna ruhusa ya kuhariri/kufuta taarifa. Muombe Mmiliki wa biashara akupe ruhusa hii kwenye "Wafanyakazi".'); return false; }
+    return true;
+  }
+
   // ── Multi-tenant load/save (Firestore) ────────────────────
   async function resolveUserAndBusiness(uid, email){
     const userSnap = await db.collection('users').doc(uid).get();
@@ -338,7 +350,7 @@ tr:hover td{background:#FBF9F2;}
   }
 
   // ── Owner creates a staff login account (without losing own session) ──
-  async function createStaffAccount(email, tempPassword, name, role){
+  async function createStaffAccount(email, tempPassword, name, role, canEditDelete){
     const secName = 'secondary_'+Date.now();
     const secApp = firebase.initializeApp(firebaseConfig, secName);
     const secAuth = secApp.auth();
@@ -354,7 +366,7 @@ tr:hover td{background:#FBF9F2;}
       await secApp.delete();
       // back on primary session: record this staff account on the business doc
       DB.staffAccounts = DB.staffAccounts || [];
-      DB.staffAccounts.push({uid:newUid, email, name, role, createdAt:new Date().toISOString()});
+      DB.staffAccounts.push({uid:newUid, email, name, role, canEditDelete:!!canEditDelete, createdAt:new Date().toISOString()});
       await saveDBToCloud();
       return {ok:true};
     }catch(e){
@@ -925,6 +937,7 @@ function tabProducts(){
 
 function openProductModal(id){
   if(!id && !requireBranch()) return;
+  if(id && !requireEditDelete()) return;
   const p = id?product(id):{
     id:uid('prod'),name:'',category:'',unit:'Kilo',purchaseCost:0,packagingCost:0,transportCost:0,handlingCost:0,
     taxRate:DB.settings.defaultTax, retailMargin:DB.settings.defaultRetailMargin, wholesaleMargin:DB.settings.defaultWholesaleMargin,
@@ -1042,6 +1055,7 @@ function saveProduct(id, isNew){
   render();
 }
 function deleteProduct(id){
+  if(!requireEditDelete()) return;
   if(!confirm('Una uhakika unataka kufuta bidhaa hii?')) return;
   DB.products = DB.products.filter(p=>p.id!==id);
   saveDB(); render(); toast('🗑️ Bidhaa imefutwa');
@@ -1125,6 +1139,7 @@ function savePurchase(){
   saveDB(); document.querySelector('.modal-bg').remove(); toast('✅ Manunuzi yamerekodiwa, stock imeongezwa'); render();
 }
 function deletePurchase(id){
+  if(!requireEditDelete()) return;
   if(!confirm('Futa rekodi hii ya manunuzi?')) return;
   const rec = DB.purchases.find(p=>p.id===id);
   if(rec){ const p=product(rec.productId); if(p) p.currentStock=Math.max(0,(Number(p.currentStock)||0)-Number(rec.qty||0)); }
@@ -1256,6 +1271,7 @@ function saveSale(){
   saveDB(); document.querySelector('.modal-bg').remove(); toast('✅ Mauzo yamerekodiwa'); render();
 }
 function deleteSale(id){
+  if(!requireEditDelete()) return;
   if(!confirm('Futa rekodi hii ya mauzo?')) return;
   const rec = DB.sales.find(p=>p.id===id);
   if(rec){ const p=product(rec.productId); if(p) p.currentStock=(Number(p.currentStock)||0)+Number(rec.qty||0); }
@@ -1303,9 +1319,9 @@ function tabDocuments(){
     return `<div class="alert-box warn"><span class="ic">🏬</span><div>Chagua tawi mahususi juu kushoto ili kutengeneza ankara/risiti mpya, kwa sababu bidhaa na wateja ni tofauti kwa kila tawi.</div></div>
     <div class="card"><div class="card-title"><h2>Nyaraka za Hivi Karibuni (Matawi Yote)</h2></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Namba</th><th>Aina</th><th>Tarehe</th><th>Mteja</th><th>Tawi</th><th>Jumla</th></tr></thead>
+      <thead><tr><th>Namba</th><th>Aina</th><th>Tarehe</th><th>Mteja</th><th>Tawi</th><th>Jumla</th><th></th></tr></thead>
       <tbody>
-      ${DB.documents.slice().reverse().slice(0,20).map(d=>`<tr><td class="mono">${esc(d.number)}</td><td>${esc(d.type)}</td><td>${d.date}</td><td>${esc(d.customer||'—')}</td><td>${esc(branchName(d.branchId))}</td><td>${fmt(d.total)}</td></tr>`).join('')||`<tr><td colspan="6"><div class="empty">Bado hakuna nyaraka.</div></td></tr>`}
+      ${DB.documents.slice().reverse().slice(0,20).map(d=>`<tr><td class="mono">${esc(d.number)}</td><td>${esc(d.type)}</td><td>${d.date}</td><td>${esc(d.customer||'—')}</td><td>${esc(branchName(d.branchId))}</td><td>${fmt(d.total)}</td><td><button class="linebtn" onclick="deleteDocument('${d.id}')">✕ Futa</button></td></tr>`).join('')||`<tr><td colspan="7"><div class="empty">Bado hakuna nyaraka.</div></td></tr>`}
       </tbody>
     </table></div></div>`;
   }
@@ -1344,7 +1360,7 @@ function tabDocuments(){
       ${recent.length===0?`<tr><td colspan="6"><div class="empty">Bado hakuna nyaraka.</div></td></tr>`:''}
       ${recent.map(d=>`<tr>
         <td class="mono">${esc(d.number)}</td><td>${esc(d.type)}</td><td>${d.date}</td><td>${esc(d.customer||'—')}</td><td>${fmt(d.total)}</td>
-        <td><button class="btn ghost sm" onclick="reprintDocument('${d.id}')">Chapisha Tena</button></td>
+        <td><button class="btn ghost sm" onclick="reprintDocument('${d.id}')">Chapisha Tena</button> <button class="linebtn" onclick="deleteDocument('${d.id}')">✕ Futa</button></td>
       </tr>`).join('')}
       </tbody>
     </table></div>
@@ -1427,13 +1443,22 @@ function generateDocument(){
   render();
 }
 function reprintDocument(id){ const d = DB.documents.find(x=>x.id===id); if(d) printDocument(d); }
+function deleteDocument(id){
+  if(!requireEditDelete()) return;
+  if(!confirm('Futa hati hii? Hatua hii haiwezi kurudishwa.')) return;
+  DB.documents = DB.documents.filter(x=>x.id!==id);
+  saveDB(); render(); toast('🗑️ Hati imefutwa');
+}
 
 function printDocument(rec){
   const titleMap = {'Profoma Invoice':'PROFOMA INVOICE','Tax Invoice':'TAX INVOICE (ANKARA RASMI)','Delivery Note':'HATI YA UWASILISHAJI (DELIVERY NOTE)','Receipt':'RISITI (RECEIPT)'};
   const s = DB.settings;
+  const isDelivery = rec.type==='Delivery Note';
   const rows = rec.items.map(it=>{
     const p = product(it.productId);
     const sub = (Number(it.qty)||0)*(Number(it.price)||0);
+    // Delivery Note: onyesha BIDHAA NA KIASI tu - BILA bei/gharama (kama hati ya kawaida ya uwasilishaji)
+    if(isDelivery) return `<tr><td>${esc(p?p.name:'—')}</td><td>${fmtN(it.qty)} ${esc(p?p.unit:'')}</td></tr>`;
     return `<tr><td>${esc(p?p.name:'—')}</td><td>${fmtN(it.qty)} ${esc(p?p.unit:'')}</td><td>${fmt(it.price)}</td><td>${fmt(sub)}</td></tr>`;
   }).join('');
   const showTax = rec.type==='Tax Invoice';
@@ -1462,17 +1487,18 @@ function printDocument(rec){
       <div class="blk"><h4>Kwenda kwa</h4><div>${esc(rec.customer||'Mteja wa Kawaida')}</div><div>${esc(rec.phone||'')}</div></div>
     </div>
     <table class="doc-table">
-      <thead><tr><th>Bidhaa</th><th>Kiasi</th><th>Bei</th><th>Jumla</th></tr></thead>
+      <thead><tr><th>Bidhaa</th><th>Kiasi</th>${isDelivery?'':'<th>Bei</th><th>Jumla</th>'}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
+    ${isDelivery?'':`
     <div class="doc-total-row"><div class="doc-total-box">
       <div class="r"><span>Jumla Ndogo</span><span>${fmt(rec.total)}</span></div>
       ${showTax?`<div class="r"><span>Kodi imejumuishwa kwenye bei</span><span>—</span></div>`:''}
       <div class="r final"><span>JUMLA KUU</span><span>${fmt(rec.total)}</span></div>
-    </div></div>
+    </div></div>`}
     ${rec.type==='Delivery Note'?`
       <div style="display:flex;gap:60px;">
-        <div class="sign-line">Sahihi ya Dereva</div>
+        <div class="sign-line">Sahihi ya Muuzaji</div>
         <div class="sign-line">Sahihi ya Mpokeaji</div>
       </div>`:''}
     ${rec.type==='Receipt'?`<div style="margin-top:16px;font-size:13px;">Tumepokea malipo ya kiasi hiki hapo juu kwa ukamilifu. Asante kwa kufanya nasi biashara!</div>`:''}
@@ -1524,6 +1550,7 @@ function tabCustomers(){
 }
 function openCustomerModal(id){
   if(!id && !requireBranch()) return;
+  if(id && !requireEditDelete()) return;
   const c = id? DB.customers.find(x=>x.id===id) : {id:uid('cus'),name:'',phone:'',address:'',notes:'',branchId:activeBranch};
   const modal=document.createElement('div'); modal.className='modal-bg';
   modal.innerHTML=`<div class="modal">
@@ -1550,7 +1577,7 @@ function saveCustomer(id){
   if(idx>=0) DB.customers[idx]=Object.assign(DB.customers[idx],data); else DB.customers.push(data);
   saveDB(); document.querySelector('.modal-bg').remove(); render(); toast('✅ Mteja amehifadhiwa');
 }
-function deleteCustomer(id){ if(!confirm('Futa mteja huyu?'))return; DB.customers=DB.customers.filter(x=>x.id!==id); saveDB(); render(); toast('🗑️ Imefutwa'); }
+function deleteCustomer(id){ if(!requireEditDelete())return; if(!confirm('Futa mteja huyu?'))return; DB.customers=DB.customers.filter(x=>x.id!==id); saveDB(); render(); toast('🗑️ Imefutwa'); }
 
 /* ================= SUPPLIERS / WASAMBAZAJI ================= */
 function tabSuppliers(){
@@ -1573,6 +1600,7 @@ function tabSuppliers(){
 }
 function openSupplierModal(id){
   if(!id && !requireBranch()) return;
+  if(id && !requireEditDelete()) return;
   const s = id? DB.suppliers.find(x=>x.id===id) : {id:uid('sup'),name:'',phone:'',notes:'',branchId:activeBranch};
   const modal=document.createElement('div'); modal.className='modal-bg';
   modal.innerHTML=`<div class="modal">
@@ -1596,7 +1624,7 @@ function saveSupplier(id){
   if(idx>=0) DB.suppliers[idx]=Object.assign(DB.suppliers[idx],data); else DB.suppliers.push(data);
   saveDB(); document.querySelector('.modal-bg').remove(); render(); toast('✅ Msambazaji amehifadhiwa');
 }
-function deleteSupplier(id){ if(!confirm('Futa msambazaji huyu?'))return; DB.suppliers=DB.suppliers.filter(x=>x.id!==id); saveDB(); render(); toast('🗑️ Imefutwa'); }
+function deleteSupplier(id){ if(!requireEditDelete())return; if(!confirm('Futa msambazaji huyu?'))return; DB.suppliers=DB.suppliers.filter(x=>x.id!==id); saveDB(); render(); toast('🗑️ Imefutwa'); }
 
 /* ================= REPORTS ================= */
 let repFrom = '', repTo = '';
@@ -1734,6 +1762,7 @@ function tabHR(){
 }
 function openEmployeeModal(id){
   if(!id && !requireBranch()) return;
+  if(id && !requireEditDelete()) return;
   const e = id? DB.employees.find(x=>x.id===id) : {
     id:uid('emp'), name:'',position:'',phone:'',salary:0,contractStart:todayStr(),contractEnd:'',
     branchId:activeBranch, deductions:{nssf:true,paye:true,wcf:true,sdl:true,health:false,union:false}
@@ -1808,7 +1837,7 @@ function saveEmployee(id){
   if(idx>=0) DB.employees[idx]=Object.assign(DB.employees[idx],data); else DB.employees.push(data);
   saveDB(); document.querySelector('.modal-bg').remove(); toast('✅ Mfanyakazi amehifadhiwa'); render();
 }
-function deleteEmployee(id){ if(!confirm('Futa mfanyakazi huyu?'))return; DB.employees=DB.employees.filter(x=>x.id!==id); saveDB(); render(); toast('🗑️ Imefutwa'); }
+function deleteEmployee(id){ if(!requireEditDelete())return; if(!confirm('Futa mfanyakazi huyu?'))return; DB.employees=DB.employees.filter(x=>x.id!==id); saveDB(); render(); toast('🗑️ Imefutwa'); }
 
 function printContract(id){
   const e = DB.employees.find(x=>x.id===id); if(!e) return;
@@ -1968,7 +1997,7 @@ function saveExpense(){
   DB.expenses.push({id:uid('ex'), category:document.getElementById('ex_cat').value, amount, date:document.getElementById('ex_date').value||todayStr(), note:document.getElementById('ex_note').value.trim(), branchId: activeBranch});
   saveDB(); document.querySelector('.modal-bg').remove(); render(); toast('✅ Gharama imehifadhiwa');
 }
-function deleteExpense(id){ if(!confirm('Futa gharama hii?'))return; DB.expenses=DB.expenses.filter(x=>x.id!==id); saveDB(); render(); toast('🗑️ Imefutwa'); }
+function deleteExpense(id){ if(!requireEditDelete())return; if(!confirm('Futa gharama hii?'))return; DB.expenses=DB.expenses.filter(x=>x.id!==id); saveDB(); render(); toast('🗑️ Imefutwa'); }
 
 /* ================= BRANCHES ================= */
 function tabBranches(){
@@ -2013,6 +2042,7 @@ function saveBranch(){
   saveDB(); document.querySelector('.modal-bg').remove(); render(); toast('✅ Tawi limeongezwa');
 }
 function deleteBranch(id){
+  if(!requireEditDelete()) return;
   if(!confirm('Futa tawi hili? Data ya bidhaa/mauzo iliyounganishwa nalo haitafutwa lakini haitakuwa na tawi.')) return;
   DB.branches = DB.branches.filter(b=>b.id!==id);
   if(activeBranch===id) activeBranch='all';
@@ -2084,16 +2114,28 @@ function tabStaffAccounts(){
         </select>
       </div>
     </div>
+    <div class="field" style="flex-direction:row;align-items:center;gap:8px;">
+      <input type="checkbox" id="sa_canEditDelete" style="width:auto;">
+      <label style="margin:0;" for="sa_canEditDelete">Mpe ruhusa ya kuhariri na kufuta taarifa (si wote wanaostahili hii)</label>
+    </div>
     <button class="btn gold" onclick="addStaffAccountUI()">➕ Tengeneza Akaunti ya Mfanyakazi</button>
     <div id="sa-msg" style="display:none;margin-top:8px;font-size:13px;font-weight:600;padding:8px 10px;border-radius:6px;"></div>
 
     <div class="section-title" style="margin-top:18px;"><h2 style="font-size:13px;">Orodha ya Wafanyakazi Wenye Akaunti</h2><div class="line"></div></div>
     ${staff.length===0?'<p class="hint">Hakuna mfanyakazi mwenye akaunti bado.</p>':`
-      <table class="tbl"><thead><tr><th>Jina</th><th>Barua Pepe</th><th>Cheo</th><th>Tarehe</th></tr></thead>
-      <tbody>${staff.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.email)}</td><td>${esc(x.role)}</td><td>${esc((x.createdAt||'').slice(0,10))}</td></tr>`).join('')}</tbody></table>
+      <table class="tbl"><thead><tr><th>Jina</th><th>Barua Pepe</th><th>Cheo</th><th>Ruhusa ya Kuhariri/Kufuta</th><th>Tarehe</th><th></th></tr></thead>
+      <tbody>${staff.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.email)}</td><td>${esc(x.role)}</td><td>${x.canEditDelete?'<span class="badge green">Ndiyo</span>':'<span class="badge">Hapana</span>'}</td><td>${esc((x.createdAt||'').slice(0,10))}</td><td><button class="btn ghost sm" onclick="toggleStaffEditDelete('${x.uid}')">${x.canEditDelete?'Ondoa Ruhusa':'Ruhusu Kuhariri/Kufuta'}</button></td></tr>`).join('')}</tbody></table>
       <p class="hint" style="margin-top:8px;">Kuondoa mfanyakazi kabisa (kuzuia asiingie tena), wasiliana na msaidizi wako wa kiufundi kufanya hivyo kwenye Firebase Console.</p>
     `}
   </div>`;
+}
+async function toggleStaffEditDelete(uid){
+  const acc = (DB.staffAccounts||[]).find(x=>x.uid===uid);
+  if(!acc) return;
+  acc.canEditDelete = !acc.canEditDelete;
+  await saveDBToCloud();
+  render();
+  toast(acc.canEditDelete ? '✅ Amepewa ruhusa ya kuhariri/kufuta' : 'Ruhusa imeondolewa');
 }
 async function addStaffAccountUI(){
   const email=document.getElementById('sa_email').value.trim();
@@ -2111,7 +2153,8 @@ async function addStaffAccountUI(){
   }
   msg.style.display='block'; msg.style.background='#FBF2DE'; msg.style.color='#B9821F';
   msg.textContent='⏳ Inatengeneza akaunti...';
-  const res = await createStaffAccount(email, pass, name, role);
+  const canEditDelete = document.getElementById('sa_canEditDelete').checked;
+  const res = await createStaffAccount(email, pass, name, role, canEditDelete);
   if(res.ok){
     msg.style.background='#E7F1EA'; msg.style.color='#2E6B4F';
     msg.textContent=`✅ Akaunti ya ${name} imetengenezwa. Mpe barua pepe: ${email} na nenosiri: ${pass}`;
