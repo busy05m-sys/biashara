@@ -238,6 +238,7 @@ tr:hover td{background:#FBF9F2;}
   let currentPlatformStatus = 'active'; // 'pending' | 'active' | 'suspended' - hali ya biashara husika kwenye mfumo mzima
   const PLATFORM_ADMIN_EMAIL = 'info@kiseja.com'; // Msimamizi Mkuu wa mfumo mzima (anaidhinisha/kusimamisha maduka)
   const PAYMENT_YASS_NUMBER = '17517483';
+  const PAYMENT_PHONE_NUMBER = '0673284088';
   const PAYMENT_INQUIRY_EMAIL = 'info@kiseja.com';
 
   function swAuthErr(code){
@@ -342,7 +343,20 @@ tr:hover td{background:#FBF9F2;}
     } else {
       try{
         const pbSnap = await db.collection('platform_businesses').doc(currentBusinessId).get();
-        currentPlatformStatus = pbSnap.exists ? (pbSnap.data().status||'pending') : 'pending';
+        if(pbSnap.exists){
+          currentPlatformStatus = pbSnap.data().status||'pending';
+        } else {
+          // Hakuna rekodi ya usajili kwa biashara hii - ina maana ni biashara ya ZAMANI
+          // (iliyoundwa kabla ya kipengele hiki cha idhini kuongezwa). Isiwazuie bila sababu -
+          // "grandfather" (iruhusu moja kwa moja), na ihifadhi rekodi kwa ajili ya usimamizi ujao.
+          currentPlatformStatus = 'active';
+          try{
+            await db.collection('platform_businesses').doc(currentBusinessId).set({
+              businessId: currentBusinessId, ownerEmail: currentUserEmail,
+              status: 'active', createdAt: new Date().toISOString(), note:'Biashara ya awali (kabla ya mfumo wa idhini)'
+            });
+          }catch(e2){ console.error('Imeshindwa kusajili biashara ya zamani', e2); }
+        }
       }catch(e){ console.error('Imeshindwa kusoma hali ya biashara', e); currentPlatformStatus='active'; /* usizuie kama mtandao una tatizo la muda */ }
     }
   }
@@ -436,6 +450,7 @@ tr:hover td{background:#FBF9F2;}
         </p>
         <div style="background:#F6F2E7;border-radius:10px;padding:14px;text-align:left;font-size:.85rem;line-height:1.7;margin-bottom:16px;">
           <div><b>💳 Lipa kupitia Yass:</b> ${PAYMENT_YASS_NUMBER}</div>
+          <div><b>📱 Simu:</b> ${PAYMENT_PHONE_NUMBER}</div>
           <div><b>✉️ Maulizo:</b> ${PAYMENT_INQUIRY_EMAIL}</div>
         </div>
         <button onclick="auth.signOut()" style="background:#173C30;color:#fff;border:none;padding:.7rem 1.4rem;border-radius:8px;font:inherit;font-weight:700;font-size:.88rem;cursor:pointer;">Toka</button>
@@ -2157,7 +2172,7 @@ function tabPlatformAdmin(){
   loadAllBusinessesForAdmin();
   return `<div class="card">
     <div class="card-title"><h2>🛡️ Usimamizi wa Mfumo Mzima (Msimamizi Mkuu)</h2></div>
-    <p class="hint">Idhinisha maduka mapya yanayojisajili, au simamisha yale yaliyovunja masharti / hayajalipia. Malipo hupokelewa kupitia Yass ${PAYMENT_YASS_NUMBER}, maulizo ${PAYMENT_INQUIRY_EMAIL}.</p>
+    <p class="hint">Idhinisha maduka mapya yanayojisajili, au simamisha yale yaliyovunja masharti / hayajalipia. Malipo hupokelewa kupitia Yass ${PAYMENT_YASS_NUMBER} au Simu ${PAYMENT_PHONE_NUMBER}, maulizo ${PAYMENT_INQUIRY_EMAIL}.</p>
     <div id="platform-admin-list"><p class="hint">Inapakia...</p></div>
   </div>`;
 }
