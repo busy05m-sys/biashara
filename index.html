@@ -73,13 +73,16 @@ input,select,textarea{font-family:inherit;}
 .main{flex:1;min-width:0;}
 .topbar{
   background:var(--paper);border-bottom:1px solid var(--line);
-  padding:14px 26px;display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:14px 26px;display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;
   position:sticky;top:0;z-index:5;
 }
+.topbar-left{display:flex;align-items:center;gap:10px;flex:1;min-width:180px;}
+.topbar-right{display:flex;align-items:center;gap:10px;margin-left:auto;}
+.topbar-user{font-size:11.5px;color:var(--muted);text-align:right;line-height:1.3;display:flex;flex-direction:column;}
 .topbar h1{font-size:19px;margin:0;font-weight:700;}
 .topbar .sub{color:var(--muted);font-size:12.5px;margin-top:2px;}
-.branch-select{display:flex;align-items:center;gap:8px;}
-.branch-select select{padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:12.5px;font-weight:600;color:var(--forest);}
+.branch-select{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-basis:100%;order:99;}
+.branch-select select{padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:12.5px;font-weight:600;color:var(--forest);max-width:100%;}
 
 .content{padding:22px 26px 60px;}
 
@@ -105,7 +108,9 @@ input,select,textarea{font-family:inherit;}
   }
   .sidebar.open{transform:translateX(0);}
   .main{width:100%;}
-  .topbar{flex-wrap:wrap;gap:8px;padding:12px 14px;}
+  .topbar{padding:10px 14px;}
+  .topbar-user-email{display:none;} /* itoweke kwenye skrini ndogo - wadhifa (role) na kitufe cha Toka vinatosha */
+  .topbar-user{text-align:left;}
   .content{padding:14px;}
   .two-col{grid-template-columns:1fr;}
   .form-row,.form-grid{grid-template-columns:1fr;}
@@ -114,6 +119,10 @@ input,select,textarea{font-family:inherit;}
   .g4,.g3{grid-template-columns:1fr;}
   .modal-box{max-width:100%;width:100%;min-height:100vh;border-radius:0;}
   table{font-size:12px;}
+  .topbar h1{font-size:16px;}
+  .topbar .sub{font-size:11px;}
+  .branch-select span{width:100%;}
+  .branch-select select{width:100%;}
 }
 @media(min-width:1650px){
   .content{max-width:1750px;margin:0 auto;width:100%;}
@@ -805,16 +814,16 @@ function renderTopbar(){
   };
   const [t,s] = titles[activeTab]||["",""];
   return `<div class="topbar">
-    <div style="display:flex;align-items:center;gap:10px;">
+    <div class="topbar-left">
       <button id="kclHamburger" onclick="toggleMobileSidebar()" aria-label="Menu">☰</button>
       <div><h1>${t}</h1><div class="sub">${s}</div></div>
     </div>
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div style="font-size:11.5px;color:var(--muted);text-align:right;line-height:1.3;">
-        👤 ${esc(currentUserEmail||'')}<br/><b style="color:var(--forest);">${esc(currentRole||'')}</b>
+    <div class="topbar-right">
+      <div class="topbar-user">
+        <span class="topbar-user-email">👤 ${esc(currentUserEmail||'')}</span><b style="color:var(--forest);">${esc(currentRole||'')}</b>
       </div>
       <button onclick="doLogout()" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);
-        padding:6px 12px;border-radius:8px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">
+        padding:6px 12px;border-radius:8px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">
         🚪 Toka
       </button>
     </div>
