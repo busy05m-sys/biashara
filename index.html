@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KCL — Mfumo wa Biashara</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#173C30">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="KCL Biashara"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700;900&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500&display=swap');
 
@@ -2374,5 +2381,40 @@ async function boot(){
 
 </div><!-- /#app-content -->
 
+
+<!-- ===== PWA: kuweka app kwenye simu ===== -->
+<style>
+#pwaBtn{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:9000;display:none;align-items:center;gap:8px;background:linear-gradient(135deg,#E4B45A,#C9962A);color:#173C30;border:0;border-radius:999px;padding:12px 18px;font-weight:800;font-size:14px;box-shadow:0 10px 24px -8px rgba(15,42,34,.7);cursor:pointer}
+#pwaHelp{position:fixed;inset:0;background:rgba(8,44,32,.6);z-index:9100;display:none;align-items:flex-end;justify-content:center}
+#pwaHelp .bx{background:#fff;color:#1B211D;width:100%;max-width:460px;border-radius:20px 20px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom,0px));font-size:14px;line-height:1.6}
+@media(min-width:620px){#pwaHelp{align-items:center}#pwaHelp .bx{border-radius:20px}}
+#pwaHelp h3{margin:0 0 8px;font-size:18px}#pwaHelp ol{margin:8px 0 0 18px;padding:0}#pwaHelp button{margin-top:14px;width:100%;background:#173C30;color:#fff;border:0;border-radius:10px;padding:12px;font-weight:700;font-size:14px;cursor:pointer}
+@media print{#pwaBtn,#pwaHelp{display:none!important}}
+</style>
+<button id="pwaBtn" type="button" onclick="pwaInstall()">📲 Weka App</button>
+<div id="pwaHelp" onclick="if(event.target===this)this.style.display='none'"><div class="bx" id="pwaBx"></div></div>
+<script>
+(function(){
+  var dp=null, btn=document.getElementById('pwaBtn');
+  var standalone=function(){return (window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;};
+  var ios=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  var inApp=/FBAN|FBAV|Instagram|WhatsApp|Telegram|TikTok|; wv\)/i.test(navigator.userAgent);
+  function showBtn(){ if(!standalone()) btn.style.display='inline-flex'; }
+  window.addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); dp=e; showBtn(); });
+  window.addEventListener('appinstalled',function(){ dp=null; btn.style.display='none'; });
+  if(ios||inApp) showBtn();   // iPhone na vivinjari vya ndani ya app hazina kitufe cha moja kwa moja: tunaonyesha maelekezo
+  window.pwaInstall=function(){
+    if(dp){ dp.prompt(); dp.userChoice.then(function(){ dp=null; btn.style.display='none'; }); return; }
+    var h=document.getElementById('pwaHelp'), b=document.getElementById('pwaBx');
+    var warn=inApp?'<p style="background:#FBF2DE;color:#B9821F;padding:10px;border-radius:8px"><b>Umefungua ndani ya app nyingine (WhatsApp/Facebook).</b> Bonyeza ⋮ kisha <b>Fungua kwenye '+(ios?'Safari':'Chrome')+'</b>, halafu fuata hatua hizi.</p>':'';
+    b.innerHTML='<h3>Weka KCL Biashara kwenye simu</h3>'+warn+(ios
+      ?'<ol><li>Fungua <b>biashara.kiseja.com</b> kwenye <b>Safari</b>.</li><li>Bonyeza kitufe cha <b>Share</b> (mraba wenye mshale wa juu).</li><li>Chagua <b>Add to Home Screen</b>.</li><li>Bonyeza <b>Add</b>.</li></ol>'
+      :'<ol><li>Fungua <b>biashara.kiseja.com</b> kwenye <b>Chrome</b>.</li><li>Bonyeza menyu <b>⋮</b> juu kulia.</li><li>Chagua <b>Install app</b> (au <b>Add to Home screen</b>).</li><li>Bonyeza <b>Install</b>.</li></ol>')
+      +'<button type="button" onclick="document.getElementById(\'pwaHelp\').style.display=\'none\'">Sawa</button>';
+    h.style.display='flex';
+  };
+  if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){ window.addEventListener('load',function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); }); }
+})();
+</script>
 </body>
 </html>
