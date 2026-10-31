@@ -4859,7 +4859,7 @@ function bzParseVerify(tok){
   function showBtn(){ if(!standalone()) btn.style.display='inline-flex'; }
   window.addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); dp=e; showBtn(); });
   window.addEventListener('appinstalled',function(){ dp=null; btn.style.display='none'; });
-  if(ios||inApp) showBtn();   // iPhone na vivinjari vya ndani ya app hazina kitufe cha moja kwa moja: tunaonyesha maelekezo
+  showBtn();   // kitufe kinaonekana kila wakati app haijawekwa; Chrome ikiruhusu kinaweka moja kwa moja, vinginevyo kinaonyesha maelekezo
   window.pwaInstall=function(){
     if(dp){ dp.prompt(); dp.userChoice.then(function(){ dp=null; btn.style.display='none'; }); return; }
     var h=document.getElementById('pwaHelp'), b=document.getElementById('pwaBx');
