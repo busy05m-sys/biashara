@@ -737,8 +737,56 @@ function cogsOfSales(list){
 function expensesTotal(list){ return list.reduce((a,s)=>a+Number(s.amount||0),0); }
 
 /* ================= RENDER SHELL ================= */
+/* ================= RUHUSA ZA WAFANYAKAZI: kila mtu aone kile alichopewa tu ================= */
+const STAFF_TABS=[['dashboard','🏠 Dashibodi (mauzo, faida, muhtasari)'],['products','📦 Bidhaa & Bei (zinaonyesha gharama na faida)'],['purchases','🧾 Manunuzi'],['sales','💰 Mauzo'],['stock','📊 Ghala/Stock'],['documents','📄 Ankara & Risiti'],['customers','🧑‍🤝‍🧑 Wateja & Madeni'],['suppliers','🚚 Wasambazaji'],['reports','📈 Ripoti & Ushauri (faida/hasara)'],['hr','👥 Wafanyakazi (HRM)'],['payroll','💵 Payroll (mishahara)'],['expenses','🏢 Gharama za Uendeshaji'],['branches','📍 Matawi']];
+const ROLE_PRESETS={
+  'Mgavi':['stock','purchases','suppliers'],
+  'Mhasibu':['dashboard','sales','purchases','customers','suppliers','expenses','reports','documents'],
+  'Sales Officer':['sales','customers','documents','stock'],
+  'Meneja':['dashboard','products','purchases','sales','stock','documents','customers','suppliers','reports','expenses'],
+  'Mfanyakazi Mwingine':['sales','stock']
+};
+function myStaffAcc(){ return currentRole==='Mmiliki' ? null : (DB.staffAccounts||[]).find(x=>x.uid===currentUID)||null; }
+function staffPerms(acc){ return Array.isArray(acc&&acc.perms) ? acc.perms : (ROLE_PRESETS[acc&&acc.role]||['sales','stock']); }
+function allowedTab(id){
+  if(currentRole==='Mmiliki') return id!=='platformadmin' || currentUserEmail===PLATFORM_ADMIN_EMAIL;
+  if(id==='settings'||id==='platformadmin') return false;      // mipangilio na akaunti ni za Mmiliki tu
+  return staffPerms(myStaffAcc()).includes(id);
+}
+function firstAllowedTab(){ const f=['dashboard'].concat(STAFF_TABS.map(t=>t[0])).find(allowedTab); return f||'dashboard'; }
+function myBranch(){ const a=myStaffAcc(); return a&&a.branchId&&DB.branches.some(b=>b.id===a.branchId) ? a.branchId : ''; }
+function permBoxes(sel,prefix){ return '<div style="display:grid;gap:6px;margin:6px 0;">'+STAFF_TABS.map(([id,l])=>`<label style="display:flex;gap:8px;align-items:center;font-weight:500;text-transform:none;letter-spacing:0;margin:0;"><input type="checkbox" class="${prefix}" value="${id}" ${sel.includes(id)?'checked':''} style="width:auto;"> ${l}</label>`).join('')+'</div>'; }
+function pickedPerms(prefix){ return Array.from(document.querySelectorAll('input.'+prefix+':checked')).map(x=>x.value); }
+function branchOpts(cur){ return '<option value="">Matawi yote</option>'+DB.branches.map(b=>`<option value="${b.id}" ${cur===b.id?'selected':''}>${esc(b.name)}</option>`).join(''); }
+function applyRolePreset(){ const r=document.getElementById('sa_role').value, pr=ROLE_PRESETS[r]||[]; document.querySelectorAll('input.spn').forEach(x=>{ x.checked=pr.includes(x.value); }); }
+function openStaffPerms(uid){
+  const a=(DB.staffAccounts||[]).find(x=>x.uid===uid); if(!a) return;
+  const m=document.createElement('div'); m.className='modal-bg'; m.id='staffPermModal';
+  m.innerHTML=`<div class="modal"><div class="modal-head"><h2>🔐 Ruhusa za ${esc(a.name)}</h2><button class="xbtn" onclick="this.closest('.modal-bg').remove()">✕</button></div>
+    <p class="hint">${esc(a.role)} · ${esc(a.email)}</p>
+    <div class="field"><label>Sehemu anazoruhusiwa kuona</label>${permBoxes(staffPerms(a),'spe')}</div>
+    <div class="field"><label>Tawi analoruhusiwa kufanyia kazi</label><select id="spe_branch">${branchOpts(a.branchId||'')}</select></div>
+    <div class="field" style="flex-direction:row;align-items:center;gap:8px;"><input type="checkbox" id="spe_ed" ${a.canEditDelete?'checked':''} style="width:auto;"><label style="margin:0;text-transform:none;letter-spacing:0;" for="spe_ed">Aruhusiwe kuhariri na kufuta taarifa</label></div>
+    <div style="display:flex;gap:10px;margin-top:16px;"><button class="btn gold" onclick="saveStaffPerms('${uid}')">💾 Hifadhi</button><button class="btn ghost" onclick="this.closest('.modal-bg').remove()">Ghairi</button></div></div>`;
+  document.body.appendChild(m);
+}
+async function saveStaffPerms(uid){
+  const a=(DB.staffAccounts||[]).find(x=>x.uid===uid); if(!a) return;
+  const perms=pickedPerms('spe'); if(!perms.length){ toast('⚠️ Chagua angalau sehemu moja'); return; }
+  a.perms=perms; a.branchId=document.getElementById('spe_branch').value; a.canEditDelete=document.getElementById('spe_ed').checked;
+  await saveDBToCloud(); document.getElementById('staffPermModal').remove(); render(); toast('✅ Ruhusa zimehifadhiwa');
+}
+async function toggleStaffBlock(uid){
+  const a=(DB.staffAccounts||[]).find(x=>x.uid===uid); if(!a) return;
+  if(!a.blocked && !confirm('Kumzuia '+a.name+' asiingie mfumoni? Unaweza kumfungulia baadaye.')) return;
+  a.blocked=!a.blocked; await saveDBToCloud(); render(); toast(a.blocked?'⛔ '+a.name+' amezuiwa kuingia':'✅ '+a.name+' amefunguliwa');
+}
+
 function render(){
   const app = document.getElementById('app');
+  { const me=myStaffAcc(); if(me&&me.blocked){ toast('⛔ Akaunti yako imezuiwa. Wasiliana na Mmiliki wa biashara.'); doLogout(); return; }
+    const mb=myBranch(); if(mb && activeBranch!==mb) activeBranch=mb;
+    if(!allowedTab(activeTab)) activeTab=firstAllowedTab(); }
   app.innerHTML = `
     <div class="sidebar-overlay" onclick="closeMobileSidebar()"></div>
     ${renderSidebar()}
@@ -778,6 +826,7 @@ function renderSidebar(){
   if(currentUserEmail===PLATFORM_ADMIN_EMAIL){
     items.push({group:"Usimamizi wa Mfumo", tabs:[["platformadmin","🛡️","Maduka Yote (Msimamizi Mkuu)"]]});
   }
+  const items2 = items.map(g=>({group:g.group,tabs:g.tabs.filter(t=>allowedTab(t[0]))})).filter(g=>g.tabs.length);
   return `<div class="sidebar">
     <div class="brand">
       ${shopLogoHTML(38)}
@@ -787,7 +836,7 @@ function renderSidebar(){
       </div>
     </div>
     <div class="nav">
-      ${items.map(g=>`
+      ${items2.map(g=>`
         <div class="nav-group">
           <div class="nav-label">${g.group}</div>
           ${g.tabs.map(([id,ic,label])=>`
@@ -838,15 +887,15 @@ function renderTopbar(){
     </div>
     <div class="branch-select">
       <span style="font-size:12px;color:var(--muted);font-weight:600;">🏬 Biashara/Tawi Linalofanya Kazi:</span>
-      <select onchange="setBranch(this.value)">
+      ${myBranch()?`<b>${esc(branchName(myBranch()))}</b>`:`<select onchange="setBranch(this.value)">
         <option value="all" ${activeBranch==='all'?'selected':''}>👁️ Muhtasari wa Matawi Yote (kuangalia tu)</option>
         ${DB.branches.map(b=>`<option value="${b.id}" ${activeBranch===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
-      </select>
+      </select>`}
     </div>
   </div>`;
 }
 
-function goTab(t){ activeTab=t; render(); closeMobileSidebar(); }
+function goTab(t){ if(!allowedTab(t)){ toast('⛔ Huna ruhusa ya kuona sehemu hii.'); return; } activeTab=t; render(); closeMobileSidebar(); }
 function toggleMobileSidebar(){
   document.querySelector('.sidebar')?.classList.toggle('open');
   document.querySelector('.sidebar-overlay')?.classList.toggle('active');
@@ -855,7 +904,7 @@ function closeMobileSidebar(){
   document.querySelector('.sidebar')?.classList.remove('open');
   document.querySelector('.sidebar-overlay')?.classList.remove('active');
 }
-function setBranch(v){ activeBranch=v; render(); }
+function setBranch(v){ if(myBranch()) v=myBranch(); activeBranch=v; render(); }
 function requireBranch(){
   if(activeBranch==='all'){
     toast('⚠️ Chagua tawi mahususi juu kushoto kabla ya kuongeza taarifa. "Tawi Kuu/Zote" ni kwa muhtasari tu.');
@@ -2397,12 +2446,14 @@ function tabStaffAccounts(){
     <div class="row">
       <div class="field"><label>Nenosiri la Muda (mpe mfanyakazi)</label><input id="sa_pass" type="text" placeholder="Angalau herufi 6"></div>
       <div class="field"><label>Cheo</label>
-        <select id="sa_role">
+        <select id="sa_role" onchange="applyRolePreset()">
           <option>Mgavi</option><option>Mhasibu</option><option>Sales Officer</option>
           <option>Meneja</option><option>Mfanyakazi Mwingine</option>
         </select>
       </div>
     </div>
+    <div class="field"><label>Sehemu atakazoona (zinajazwa kulingana na cheo; badilisha ukitaka)</label>${permBoxes(ROLE_PRESETS['Mgavi'],'spn')}</div>
+    <div class="field"><label>Tawi atakalofanyia kazi</label><select id="sa_branch">${branchOpts('')}</select></div>
     <div class="field" style="flex-direction:row;align-items:center;gap:8px;">
       <input type="checkbox" id="sa_canEditDelete" style="width:auto;">
       <label style="margin:0;" for="sa_canEditDelete">Mpe ruhusa ya kuhariri na kufuta taarifa (si wote wanaostahili hii)</label>
@@ -2412,9 +2463,9 @@ function tabStaffAccounts(){
 
     <div class="section-title" style="margin-top:18px;"><h2 style="font-size:13px;">Orodha ya Wafanyakazi Wenye Akaunti</h2><div class="line"></div></div>
     ${staff.length===0?'<p class="hint">Hakuna mfanyakazi mwenye akaunti bado.</p>':`
-      <table class="tbl"><thead><tr><th>Jina</th><th>Barua Pepe</th><th>Cheo</th><th>Ruhusa ya Kuhariri/Kufuta</th><th>Tarehe</th><th></th></tr></thead>
-      <tbody>${staff.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.email)}</td><td>${esc(x.role)}</td><td>${x.canEditDelete?'<span class="badge green">Ndiyo</span>':'<span class="badge">Hapana</span>'}</td><td>${esc((x.createdAt||'').slice(0,10))}</td><td><button class="btn ghost sm" onclick="toggleStaffEditDelete('${x.uid}')">${x.canEditDelete?'Ondoa Ruhusa':'Ruhusu Kuhariri/Kufuta'}</button></td></tr>`).join('')}</tbody></table>
-      <p class="hint" style="margin-top:8px;">Kuondoa mfanyakazi kabisa (kuzuia asiingie tena), wasiliana na msaidizi wako wa kiufundi kufanya hivyo kwenye Firebase Console.</p>
+      <table class="tbl"><thead><tr><th>Jina</th><th>Barua Pepe</th><th>Cheo</th><th>Anaona</th><th>Tawi</th><th>Kuhariri/Kufuta</th><th>Hali</th><th></th></tr></thead>
+      <tbody>${staff.map(x=>`<tr><td><b>${esc(x.name)}</b><div class="hint">${esc(x.role)}</div></td><td>${esc(x.email)}</td><td style="max-width:260px;font-size:12px;">${staffPerms(x).map(id=>(STAFF_TABS.find(t=>t[0]===id)||[0,id])[1].replace(/\s*\(.*\)/,'')).join(', ')}</td><td>${x.branchId?esc(branchName(x.branchId)):'Yote'}</td><td>${x.canEditDelete?'<span class="badge green">Ndiyo</span>':'<span class="badge">Hapana</span>'}</td><td>${x.blocked?'<span class="badge danger">Amezuiwa</span>':'<span class="badge green">Anaruhusiwa</span>'}</td><td><button class="btn ghost sm" onclick="openStaffPerms('${x.uid}')">🔐 Ruhusa</button> <button class="btn ghost sm" onclick="toggleStaffBlock('${x.uid}')">${x.blocked?'Mfungulie':'Mzuie'}</button></td></tr>`).join('')}</tbody></table>
+      <p class="hint" style="margin-top:8px;">"Mzuie" inamzuia mfanyakazi asiingie mfumoni; unaweza kumfungulia wakati wowote.</p>
     `}
   </div>`;
 }
@@ -2443,8 +2494,11 @@ async function addStaffAccountUI(){
   msg.style.display='block'; msg.style.background='#FBF2DE'; msg.style.color='#B9821F';
   msg.textContent='⏳ Inatengeneza akaunti...';
   const canEditDelete = document.getElementById('sa_canEditDelete').checked;
+  const perms = pickedPerms('spn'); if(!perms.length){ msg.style.background='#FBEBE5'; msg.style.color='#B3432B'; msg.textContent='Chagua angalau sehemu moja atakayoruhusiwa kuona.'; return; }
+  const branchId = document.getElementById('sa_branch').value;
   const res = await createStaffAccount(email, pass, name, role, canEditDelete);
   if(res.ok){
+    const na=(DB.staffAccounts||[]).find(x=>x.email===email); if(na){ na.perms=perms; na.branchId=branchId; await saveDBToCloud(); }
     msg.style.background='#E7F1EA'; msg.style.color='#2E6B4F';
     msg.textContent=`✅ Akaunti ya ${name} imetengenezwa. Mpe barua pepe: ${email} na nenosiri: ${pass}`;
     render();
